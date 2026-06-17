@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -74,19 +76,10 @@ def resolve_host(ip: str, timeout: float = 0.4) -> str:
         return ip
 
 
-def get_process_name(pid: int) -> str:
-    if pid is None:
-        return "—"
-    try:
-        return psutil.Process(pid).name()
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return f"[dim]pid:{pid}[/dim]"
-
-
 def port_label(port: int) -> str:
     if port in RISK_PORTS:
         name, _ = RISK_PORTS[port]
-        return f"{port} [dim]({name})[/dim]"
+        return fr"{port} [dim]({name})[/dim]"
     return str(port) if port else "—"
 
 
@@ -128,6 +121,16 @@ _PRIVATE_PREFIXES = (
     "fe80",
 )
 
+class _Conn(NamedTuple):
+    fd: int
+    family: int
+    type: int
+    laddr: object
+    raddr: object
+    status: str
+    pid: int | None
+
+
 
 def _is_external(ip: str) -> bool:
     if not ip or ip in ("0.0.0.0", "::"):
@@ -135,7 +138,7 @@ def _is_external(ip: str) -> bool:
     return not any(ip.startswith(p) for p in _PRIVATE_PREFIXES)
 
 
-def calc_risk(conn, suspicious_path: bool = False) -> tuple[str, str]:
+def calc_risk(conn: _Conn, suspicious_path: bool = False) -> tuple[str, str]:
     """Return (label, rich_style) — HIGH / MED / LOW."""
     rip = conn.raddr.ip if conn.raddr else ""
     rport = conn.raddr.port if conn.raddr else 0
@@ -181,7 +184,7 @@ def _fetch_geo(ip: str) -> None:
 
 def get_geo(ip: str) -> str:
     if not ip or not _is_external(ip):
-        return "[dim]local[/dim]"
+        return r"[dim]local[/dim]"
     with _geo_lock:
         cached = _geo_cache.get(ip)
     if cached is not None:
@@ -227,47 +230,58 @@ def get_proc_info(pid: int) -> tuple[str, str, bool]:
         suspicious = any(s in exe for s in _SUSPICIOUS_PATHS)
         return p.name(), exe, suspicious
     except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return f"pid:{pid}", "", False
+        return f"[dim]pid:{pid}[/dim]", "", False
 
 
 ## ── New-connection tracking ────────────────────────────────────────────────
 
-_seen_conns: dict[tuple, float] = {}
+seen_conns: dict[_Conn, float] = {}
+old_conns: dict[tuple, float] = {}
 _seen_lock = threading.Lock()
-_NEW_TTL = 6.0  # seconds a connection stays flagged as NEW
+_NEW_TTL = 4.0  # seconds a connection stays flagged as NEW
+_OLD_TTL = 4.0  # seconds a connection stays flagged as OLD
 
 
-def _conn_key(conn) -> tuple:
+def _conn_key(conn: _Conn) -> tuple:
     la = (conn.laddr.ip, conn.laddr.port) if conn.laddr else None
     ra = (conn.raddr.ip, conn.raddr.port) if conn.raddr else None
     return (la, ra, conn.pid)
 
 
-def update_seen(connections: list) -> set:
-    """Maintain the seen-connections dict; return keys seen within _NEW_TTL."""
+def update_seen(connections: list, fpid:int) -> tuple[set, set]:
+    """Maintain the seen-connections dict; return keys seen within _NEW_TTL & keys The keys that are no longer visible within _OLD_TTL."""
     now = time.time()
-    keys = {_conn_key(c) for c in connections}
+    _connections = dict()
+    for c in connections:
+        _connections[_conn_key(c)] = c
+    keys = _connections.keys()
+
+    _seen_conns = dict()
+    for c in seen_conns:
+        _seen_conns[_conn_key(c)] = c
+
+    def filter(pid):
+        if fpid: return pid == fpid
+        return True
+    
     with _seen_lock:
-        for k in keys:
-            if k not in _seen_conns:
-                _seen_conns[k] = now
+        for k in list(old_conns):
+            if now-old_conns[k] > _OLD_TTL or not filter(k[2]):
+                del old_conns[k]
         for k in list(_seen_conns):
             if k not in keys:
+                old_conns[_seen_conns[k]] = now
+                del seen_conns[_seen_conns[k]]
                 del _seen_conns[k]
-        return {k for k, ts in _seen_conns.items() if now - ts < _NEW_TTL}
+        for k in keys:
+            if k not in _seen_conns:
+                seen_conns[_connections[k]] = now
+                _seen_conns[k] = _connections[k]
+        return {k for k, ts in seen_conns.items() if now - ts < _NEW_TTL and filter(k[2])}, old_conns.keys()
 
+## ── The table ───────────────────────────────────────────────────────────
 
-class _Conn(NamedTuple):
-    fd: int
-    family: int
-    type: int
-    laddr: object
-    raddr: object
-    status: str
-    pid: int | None
-
-
-def get_connections() -> list:
+def get_connections() -> list[_Conn]:
     """Returns connections, falling back to per-process scan on permission error."""
     try:
         return psutil.net_connections(kind="inet")
@@ -288,8 +302,12 @@ def get_connections() -> list:
 
 def build_table(
     connections: list, resolve: bool = False, new_keys: set | None = None
-) -> Table:
+, old_keys: set | None = None) -> Table:
     new_keys = new_keys or set()
+    old_keys = old_keys or set()
+    #connections.extend(_old_conns)
+    #connections.sort()
+
     table = Table(
         box=box.HEAVY_HEAD,
         border_style="bright_black",
@@ -351,11 +369,14 @@ def build_table(
 
         # New-connection flag
         is_new = _conn_key(conn) in new_keys
+        is_old = conn in old_keys
         flags = Text()
         if is_new:
             flags.append("★", style="bold yellow")
         if suspicious:
             flags.append("⚠", style="bold red")
+        if is_old:
+            flags.append("⏳", style="bold red")
 
         row_style = "on grey7" if is_new else ""
         table.add_row(
@@ -461,6 +482,7 @@ def get_primary_ip() -> str:
     finally:
         s.close()
 
+ENC = 'oem'
 
 def get_wifi_ssid() -> str:
     try:
@@ -469,11 +491,17 @@ def get_wifi_ssid() -> str:
             "/Versions/Current/Resources/airport"
         )
         out = subprocess.run(
-            [airport, "-I"], capture_output=True, text=True, timeout=2
+            [airport, "-I"], capture_output=True, text=True, timeout=2, encoding=ENC
         ).stdout
         for line in out.splitlines():
             if " SSID:" in line:
                 return line.split("SSID:")[1].strip()
+    except FileNotFoundError:
+        out = subprocess.run(
+            ["netsh", "wlan", "show", "interfaces"], capture_output=True, text=True, timeout=2, encoding=ENC
+        ).stdout
+        ssid = re.fullmatch(r"[\S\s]*[^B]SSID:(.+)[^.][\S\s]*", out)
+        if ssid: return ssid.group(1)
     except Exception:
         pass
     return "—"
@@ -482,7 +510,7 @@ def get_wifi_ssid() -> str:
 def get_default_gateway() -> str:
     try:
         out = subprocess.run(
-            ["route", "get", "default"], capture_output=True, text=True, timeout=2
+            ["route", "get", "default"], capture_output=True, text=True, timeout=2, encoding=ENC
         ).stdout
         for line in out.splitlines():
             if "gateway:" in line:
@@ -569,8 +597,8 @@ def build_header() -> Panel:
     )
 
 
-def run(resolve: bool = False) -> None:
-    is_root = os.geteuid() == 0
+def run(fpid: int, resolve: bool = False) -> None:
+    is_root =  True #os.geteuid() == 0
 
     console.print(
         Panel(
@@ -592,25 +620,38 @@ def run(resolve: bool = False) -> None:
         )
 
     try:
-        with Live(console=console, refresh_per_second=2, screen=False) as live:
+        with Live(console=console, refresh_per_second=5, screen=False) as live:
             while True:
                 connections = get_connections()
-                new_keys = update_seen(connections)
+                if fpid:
+                    connections = list(filter(lambda x:x.pid == fpid, connections))
+                new_keys, old_keys = update_seen(connections, fpid)
                 live.update(
                     Group(
                         build_header(),
-                        build_table(connections, resolve=resolve, new_keys=new_keys),
+                        build_table(connections, resolve=resolve, new_keys=new_keys, old_keys=old_keys),
                         build_stats(connections),
                     )
                 )
-                time.sleep(1)
+                time.sleep(0.15)
     except KeyboardInterrupt:
         console.print("\n[bold bright_cyan]Scan terminated.[/]")
 
 
 def main() -> None:
     threading.Thread(target=_fetch_public_ip, daemon=True).start()
-    run(resolve="--resolve" in sys.argv)
+    pid = None
+    if '--process' in sys.argv:
+        try:
+            pid = sys.argv[sys.argv.index('--process')+1]
+            pid = int(pid)
+        except IndexError:
+            console.print("\n[bold bright_cyan]Missing arg[/]")
+            return
+        except ValueError:
+            console.print("\n[bold bright_cyan]Wrong pid[/]")
+            return
+    run(resolve="--resolve" in sys.argv, fpid=pid)
 
 
 if __name__ == "__main__":
