@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import NamedTuple
 
 import psutil
+from psutil._ntuples import sconn
 from rich import box
 from rich.align import Align
 from rich.console import Console, Group
@@ -121,24 +122,13 @@ _PRIVATE_PREFIXES = (
     "fe80",
 )
 
-class _Conn(NamedTuple):
-    fd: int
-    family: int
-    type: int
-    laddr: object
-    raddr: object
-    status: str
-    pid: int | None
-
-
-
 def _is_external(ip: str) -> bool:
     if not ip or ip in ("0.0.0.0", "::"):
         return False
     return not any(ip.startswith(p) for p in _PRIVATE_PREFIXES)
 
 
-def calc_risk(conn: _Conn, suspicious_path: bool = False) -> tuple[str, str]:
+def calc_risk(conn: sconn, suspicious_path: bool = False) -> tuple[str, str]:
     """Return (label, rich_style) — HIGH / MED / LOW."""
     rip = conn.raddr.ip if conn.raddr else ""
     rport = conn.raddr.port if conn.raddr else 0
@@ -235,14 +225,14 @@ def get_proc_info(pid: int) -> tuple[str, str, bool]:
 
 ## ── New-connection tracking ────────────────────────────────────────────────
 
-seen_conns: dict[_Conn, float] = {}
+seen_conns: dict[sconn, float] = {}
 old_conns: dict[tuple, float] = {}
 _seen_lock = threading.Lock()
 _NEW_TTL = 4.0  # seconds a connection stays flagged as NEW
 _OLD_TTL = 4.0  # seconds a connection stays flagged as OLD
 
 
-def _conn_key(conn: _Conn) -> tuple:
+def _conn_key(conn: sconn) -> tuple:
     la = (conn.laddr.ip, conn.laddr.port) if conn.laddr else None
     ra = (conn.raddr.ip, conn.raddr.port) if conn.raddr else None
     return (la, ra, conn.pid)
@@ -279,9 +269,8 @@ def update_seen(connections: list, fpid:int) -> tuple[set, set]:
                 _seen_conns[k] = _connections[k]
         return {k for k, ts in seen_conns.items() if now - ts < _NEW_TTL and filter(k[2])}, old_conns.keys()
 
-## ── The table ───────────────────────────────────────────────────────────
 
-def get_connections() -> list[_Conn]:
+def get_connections() -> list[sconn]:
     """Returns connections, falling back to per-process scan on permission error."""
     try:
         return psutil.net_connections(kind="inet")
@@ -291,7 +280,7 @@ def get_connections() -> list[_Conn]:
             try:
                 for c in proc.net_connections(kind="inet"):
                     conns.append(
-                        _Conn(
+                        sconn(
                             c.fd, c.family, c.type, c.laddr, c.raddr, c.status, proc.pid
                         )
                     )
