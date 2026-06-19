@@ -167,7 +167,6 @@ class Conn():
             t = processes[self.pid] = self.get_proc_info()
         self.name, self.path, self.is_suspicious = t
         self.risk_label, self.risk_style = self.calc_risk()
-        #self.get_geo()
 
 
     def _conn_key(conn) -> tuple:
@@ -219,25 +218,25 @@ class Conn():
     
 
     def get_geo(self) -> str:  ## ── GeoIP
-        ip = self.raddr.ip if self.raddr.ip else ""
+        if not self.raddr: return r"[dim]—[/dim]"
+        ip = self.raddr.ip
         def _fetch_geo(ip: str) -> None:
             try:
                 url = f"http://ip-api.com/json/{ip}?fields=country,countryCode"
-                with urllib.request.urlopen(url, timeout=3) as r:
+                with urllib.request.urlopen(url, timeout=10) as r:
                     d = json.loads(r.read())
                     result = f"{d.get('countryCode','?')}  {d.get('country','?')}"
-            except Exception:
+            except Exception: # todo
                 result = "?"
             with _geo_lock:
                 _geo_cache[ip] = result
 
         if not ip or not _is_external(ip):
             return r"[dim]local[/dim]"
+        
         with _geo_lock:
             cached = _geo_cache.get(ip)
-        if cached is not None:
-            return cached
-        with _geo_lock:
+            if cached: return cached
             _geo_cache[ip] = "…"
         threading.Thread(target=_fetch_geo, args=(ip,), daemon=True).start()
         return "…"
@@ -425,8 +424,7 @@ def build_table(resolve: bool, fpid: int) -> Table:
         )
 
         # GeoIP
-        country = conn.get_geo() if rip else "[dim]—[/dim]"
-        country_txt = Text.from_markup(country)
+        country_txt = Text.from_markup(conn.get_geo())
 
         # Risk (elevated if suspicious path)
         risk_txt = Text(conn.risk_label, style=conn.risk_style)
