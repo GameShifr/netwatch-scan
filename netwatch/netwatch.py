@@ -79,19 +79,14 @@ _PRIVATE_PREFIXES = (
 
 
 
-
-
-def port_label(port: int) -> str:
+def port_displ(port: int | None) -> tuple[tuple[str,str], str]:
+    if not port:
+        return ("—", None), 'dim white'
+    name, style = None, "white"
     if port in RISK_PORTS:
-        name, _ = RISK_PORTS[port]
-        return fr"{port} [dim]({name})[/dim]"
-    return str(port) if port else "—"
+        name, style = RISK_PORTS[port]
+    return (str(port), name), style
 
-
-def port_style(port: int) -> str:
-    if port in RISK_PORTS:
-        return RISK_PORTS[port][1]
-    return "white"
 
 def _is_external(ip: str) -> bool:
     if not ip or ip in ("0.0.0.0", "::"):
@@ -413,11 +408,13 @@ def build_table(resolve: bool, fpid: int) -> Table:
         status = getattr(conn, "status", "NONE") or "NONE"
         status_txt = Text(status, style=STATUS_STYLE.get(status, "white"))
         proto = "TCP" if conn.type == socket.SOCK_STREAM else "UDP"
-        port_txt = (
-            Text(port_label(rport), style=port_style(rport))
-            if rport
-            else Text("—", style="dim")
-        )
+
+        # port
+        port_txt = Text()
+        port, port_style = port_displ(rport)
+        port_txt.append(port[0], port_style)
+        if port[1]: port_txt.append('\n'+port[1], 'dim '+port_style)
+        
 
         # Process info with path validation
         proc_display = Text()
