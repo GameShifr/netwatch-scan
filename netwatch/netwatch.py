@@ -191,8 +191,10 @@ class Conn():
             exe = p.exe()
             suspicious = any(s in exe for s in _SUSPICIOUS_PATHS)
             return p.name(), exe, suspicious
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return f"[dim]pid:{pid}[/dim]", "", False
+        except psutil.NoSuchProcess:
+            return "—", "", False
+        except psutil.AccessDenied:
+            return "?", "", False
     
 
     def calc_risk(conn) -> tuple[str, str]:
@@ -411,7 +413,6 @@ def build_table(resolve: bool, fpid: int) -> Table:
         status = getattr(conn, "status", "NONE") or "NONE"
         status_txt = Text(status, style=STATUS_STYLE.get(status, "white"))
         proto = "TCP" if conn.type == socket.SOCK_STREAM else "UDP"
-        pid_str = str(conn.pid) if conn.pid else "—"
         port_txt = (
             Text(port_label(rport), style=port_style(rport))
             if rport
@@ -419,13 +420,11 @@ def build_table(resolve: bool, fpid: int) -> Table:
         )
 
         # Process info with path validation
-        proc_name = conn.name
-        suspicious = conn.is_suspicious
         proc_display = Text()
-        if suspicious:
+        if conn.is_suspicious:
             proc_display.append("⚠ ", style="bold red")
         proc_display.append(
-            proc_name, style="bold red" if suspicious else "bright_magenta"
+            conn.name, style="bold red" if conn.is_suspicious else "bright_magenta"
         )
 
         # GeoIP
@@ -439,7 +438,7 @@ def build_table(resolve: bool, fpid: int) -> Table:
         flags = Text()
         if conn.new:
             flags.append("★", style="bold yellow")
-        if suspicious:
+        if conn.is_suspicious:
             flags.append("⚠", style="bold red")
         if conn.old:
             flags.append("⏳", style="bold red")
@@ -456,7 +455,7 @@ def build_table(resolve: bool, fpid: int) -> Table:
             country_txt,
             port_txt,
             proc_display,
-            pid_str,
+            str(conn.pid),
             style=row_style,
         )
 
