@@ -139,7 +139,8 @@ class Conn():
     risk_label: str
     risk_style: str
     key: tuple
-    hostname: str | None = None
+    _hostname: str | None = None
+    hostname_lock = threading.Lock()
     new: bool
     old: bool
 
@@ -256,17 +257,27 @@ class Conn():
         self.old = False
     
 
-    def resolve_host(self, timeout: float = 0.4) -> str:
-        if self.hostname: return self.hostname
-        if not self.raddr.ip or self.raddr.ip in ("0.0.0.0", "::", "127.0.0.1", "::1"):
-            return self.raddr.p
-        try:
-            socket.setdefaulttimeout(timeout)
-            name = socket.gethostbyaddr(self.raddr.ip)[0]
-            self.hostname = name
-            return name
-        except Exception:
-            return self.raddr.ip
+    def hostname(self) -> str:
+        def resolve_host(self: Conn):
+            try:
+                socket.setdefaulttimeout(5)
+                name = socket.gethostbyaddr(self.raddr.ip)[0]
+            except Exception:
+                name = '—'
+            with self.hostname_lock:
+                self._hostname = name
+
+        with self.hostname_lock:
+            if self._hostname: return self._hostname
+            if not self.raddr:
+                self._hostname = None
+            elif self.raddr.ip in ("0.0.0.0", "::", "127.0.0.1", "::1"):
+                self._hostname = r"[dim]localhost[/dim]"
+            else:
+                threading.Thread(target=resolve_host, args=(self,), daemon=True).start()
+                self._hostname = "…"
+            return self._hostname
+            
 
 
 
@@ -398,9 +409,10 @@ def build_table(resolve: bool, fpid: int) -> Table:
         rip = conn.raddr.ip if conn.raddr else ""
         rport = conn.raddr.port if conn.raddr else None
 
-        if resolve and rip:
-            rhost = conn.resolve_host(rip)
-            remote_display = f"{rhost}\n[dim]{rip}[/dim]" if rhost != rip else rip
+        if resolve:
+            rhost = conn.hostname()
+            if not rhost: remote_display = "[dim]—[/dim]"
+            else: remote_display = f"{rhost}"+(f"\n[dim]{rip}[/dim]" if resolve == 2 else "")  if rhost != '—' else rip
         else:
             remote_display = rip or "[dim]—[/dim]"
 
@@ -662,7 +674,12 @@ def main() -> None:
         except ValueError:
             console.print("\n[bold bright_cyan]Wrong pid[/]")
             return
-    run(resolve="--resolve" in sys.argv, fpid=pid)
+    r = 0
+    if "--resolve" in sys.argv:
+        r = 1
+    elif "--resolve-adv" in sys.argv:
+        r = 2
+    run(resolve=r, fpid=pid)
 
 
 if __name__ == "__main__":
