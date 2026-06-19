@@ -126,6 +126,9 @@ _SUSPICIOUS_PATHS = (
     "Desktop/",
 )
 
+_NEW_TTL = 4.0  # seconds a connection stays flagged as NEW
+_OLD_TTL = 4.0  # seconds a connection stays flagged as OLD
+
 
 processes = {} #some connections could have same pid
 _geo_cache: dict[str, str] = {}
@@ -269,16 +272,14 @@ class Conn():
         except Exception:
             return self.raddr.ip
 
-## ── New-connection tracking ────────────────────────────────────────────────
+
+
+#region ── Connections update ────────────────────────────────────────────────────
 
 _seen_lock = threading.Lock()
-_NEW_TTL = 4.0  # seconds a connection stays flagged as NEW
-_OLD_TTL = 4.0  # seconds a connection stays flagged as OLD
-
-
 
 def update(connections: list[sconn]) -> tuple[set, set]:
-    """"""
+    """updates seen_conns list with current connections"""
     now = time.time()
     
     active_conns = []
@@ -289,8 +290,6 @@ def update(connections: list[sconn]) -> tuple[set, set]:
         for k in list(seen_conns):
             if k not in active_conns:
                 seen_conns[k].close(now)
-
-
 
 def get_connections() -> tuple[list[sconn], bool]:
     """Returns connections, falling back to per-process scan on permission error."""
@@ -310,6 +309,7 @@ def get_connections() -> tuple[list[sconn], bool]:
                 pass
         return conns, False
 
+#endregion
 
 #region ── Console Interface ────────────────────────────────────────────────────
 
