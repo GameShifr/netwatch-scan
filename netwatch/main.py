@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import re
 import socket
 import sys
 import time
@@ -14,6 +15,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.layout import Layout
 from connections import seen_conns, update
 from constants import *
 from sysinfo import *
@@ -108,7 +110,10 @@ def build_header() -> Panel:
         title="[bold bright_cyan]SYSTEM[/]",
     )
 
-def build_table(resolve: bool, fpid: int) -> Table:
+
+F = 1
+
+def build_table(resolve: bool, fpid: int, maxrow=None) -> Table:
     #connections.sort()
 
     table = Table(
@@ -136,7 +141,7 @@ def build_table(resolve: bool, fpid: int) -> Table:
     for conn in seen_conns.values():
         if fpid and conn.pid != fpid: continue
         i += 1
-
+        if maxrow and i >= maxrow:break
         laddr_str = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "—"
         rip = conn.raddr.ip if conn.raddr else ""
         rport = conn.raddr.port if conn.raddr else None
@@ -182,7 +187,7 @@ def build_table(resolve: bool, fpid: int) -> Table:
         if conn.old:
             flags.append("⏳", style="bold red")
 
-        row_style = "on grey7" if conn.new else ""
+        row_style = "on grey7" if i == F else ""
         table.add_row(
             str(i),
             flags,
@@ -279,18 +284,23 @@ def run(fpid: int, resolve: bool = False) -> None:
         )
 
     try:
-        with Live(console=console, refresh_per_second=5, screen=False) as live:
+        with Live(console=console) as live:
             while True:
                 conns, _ = get_connections()
                 update(conns)
-                live.update(
-                    Group(
-                        build_header(),
-                        build_table(resolve=resolve, fpid=fpid),
-                        build_stats(),
-                    )
-                )
-                time.sleep(0.15)
+                layout = Layout()
+                layout.update(build_table(resolve=resolve, fpid=fpid))
+
+                render_map = layout.render(console, console.options)
+                
+                s = str(render_map[layout].render)
+                r = r"[\s\S]*\[Segment\('├(?:─+┼)+─+┤', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +'\)\], \[Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +', Style\(dim=True\)\), Segment\(' +(\d{1,4})', Style\(dim=True\)\), Segment\(' +', Style\(dim=True\)\), Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
+                max_row = int(re.findall(r,s)[-1])
+
+                live.update(build_table(resolve=resolve, fpid=fpid, maxrow=max_row))
+
+                time.sleep(1)
+
     except KeyboardInterrupt:
         console.print("\n[bold bright_cyan]Scan terminated.[/]")
 
