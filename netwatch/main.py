@@ -108,7 +108,7 @@ def build_header() -> Panel:
         title="[bold bright_cyan]SYSTEM[/]",
     )
 
-def build_table(resolve: bool, fpid: int) -> Table:
+def build_table(resolve: bool, fpid: int, fname:str) -> Table:
     #connections.sort()
 
     table = Table(
@@ -134,7 +134,8 @@ def build_table(resolve: bool, fpid: int) -> Table:
 
     i = 0
     for conn in seen_conns.values():
-        if fpid and conn.pid != fpid: continue
+        if ((fpid and conn.pid != fpid) or
+            fname and conn.name != fname): continue
         i += 1
 
         laddr_str = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "—"
@@ -257,7 +258,7 @@ def _fmt_bytes(n: int) -> str:
     return f"{n:.1f} TB"
 
 
-def run(fpid: int, resolve: bool = False) -> None:
+def run(**kwargs) -> None:
     conns, is_root =  get_connections()
 
     console.print(
@@ -286,7 +287,7 @@ def run(fpid: int, resolve: bool = False) -> None:
                 live.update(
                     Group(
                         build_header(),
-                        build_table(resolve=resolve, fpid=fpid),
+                        build_table(**kwargs),
                         build_stats(),
                     )
                 )
@@ -297,6 +298,7 @@ def run(fpid: int, resolve: bool = False) -> None:
 
 def main() -> None:
     pid = None
+    name=None
     if '--process' in sys.argv:
         try:
             pid = sys.argv[sys.argv.index('--process')+1]
@@ -307,12 +309,14 @@ def main() -> None:
         except ValueError:
             console.print("\n[bold bright_cyan]Wrong pid[/]")
             return
+    if '--name' in sys.argv:
+        name = sys.argv[sys.argv.index('--name')+1]
     r = 0
     if "--resolve" in sys.argv:
         r = 1
     elif "--resolve-adv" in sys.argv:
         r = 2
-    run(resolve=r, fpid=pid)
+    run(resolve=r, fpid=pid, fname=name)
 
 
 if __name__ == "__main__":
