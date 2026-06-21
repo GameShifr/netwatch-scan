@@ -294,7 +294,7 @@ def run(fpid: int, resolve: bool = False) -> None:
                 render_map = layout.render(console, console.options)
                 
                 s = str(render_map[layout].render)
-                r = r"[\s\S]*\[Segment\('├(?:─+┼)+─+┤', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +'\)\], \[Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +', Style\(dim=True\)\), Segment\(' +(\d{1,4})', Style\(dim=True\)\), Segment\(' +', Style\(dim=True\)\), Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
+                r = r"[\s\S]*\[Segment\('├(?:─+┼)+─+┤?', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)(?:, Segment\(' +'\))?\], \[Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +', Style\(dim=True\)\), Segment\(' +(\d{1,4})', Style\(dim=True\)\), Segment\(' +', Style\(dim=True\)\), Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
                 max_row = int(re.findall(r,s)[-1])
 
                 live.update(build_table(resolve=resolve, fpid=fpid, maxrow=max_row))
