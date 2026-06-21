@@ -44,13 +44,11 @@ def get_public_ip() -> str:
 
 def get_primary_ip() -> str:
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
     except Exception:
         return "unknown"
-    finally:
-        s.close()
 
 
 def get_wifi_ssid() -> str:
