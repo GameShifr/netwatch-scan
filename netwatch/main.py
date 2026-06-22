@@ -5,7 +5,8 @@ import socket
 import sys
 import time
 from datetime import datetime
-
+import keyboard
+import threading
 import psutil
 from psutil._ntuples import sconn
 from rich import box
@@ -112,8 +113,21 @@ def build_header() -> Panel:
 
 
 F = 1
+startrow = 1
+max_row = float('inf')
 
-def build_table(resolve: bool, fpid: int, maxrow=None) -> Table:
+def down():
+    global startrow
+    startrow = min(max_row+1, 
+                   len(seen_conns))#for footer panel
+def up():
+    global startrow
+    i = 1
+    while lastRow(build_table(False, None, startrow=startrow-i)) >= startrow and startrow-i > 1:
+        i += 1
+    startrow -= i
+
+def build_table(resolve: bool, fpid: int, maxrow=None, startrow=1) -> Table:
     #connections.sort()
 
     table = Table(
@@ -141,7 +155,8 @@ def build_table(resolve: bool, fpid: int, maxrow=None) -> Table:
     for conn in seen_conns.values():
         if fpid and conn.pid != fpid: continue
         i += 1
-        if maxrow and i >= maxrow:break
+        if maxrow and i > maxrow:break
+        if i < startrow: continue
         laddr_str = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "—"
         rip = conn.raddr.ip if conn.raddr else ""
         rport = conn.raddr.port if conn.raddr else None
@@ -261,8 +276,23 @@ def _fmt_bytes(n: int) -> str:
         n //= 1024
     return f"{n:.1f} TB"
 
+def lastRow(table:Table):
+    layout = Layout()
+    layout.update(table)
+
+    render_map = layout.render(console, console.options)
+    
+    s = str(render_map[layout].render)
+    r = r"\[Segment\('└(?:─+┴)+─+┘?', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
+    if re.findall(r,s):
+        return float('inf')
+
+    r = r"[\s\S]*\[Segment\('├(?:─+┼)+─+┤?', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)(?:, Segment\(' +'\))?\], \[Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +', Style\(dim=True\)\), Segment\(' +(\d{1,4})', Style\(dim=True\)\), Segment\(' +', Style\(dim=True\)\), Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
+    return int(re.findall(r,s)[-1])-1
+
 
 def run(fpid: int, resolve: bool = False) -> None:
+    global max_row
     conns, is_root =  get_connections()
 
     console.print(
@@ -288,16 +318,9 @@ def run(fpid: int, resolve: bool = False) -> None:
             while True:
                 conns, _ = get_connections()
                 update(conns)
-                layout = Layout()
-                layout.update(build_table(resolve=resolve, fpid=fpid))
-
-                render_map = layout.render(console, console.options)
                 
-                s = str(render_map[layout].render)
-                r = r"[\s\S]*\[Segment\('├(?:─+┼)+─+┤?', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)(?:, Segment\(' +'\))?\], \[Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +', Style\(dim=True\)\), Segment\(' +(\d{1,4})', Style\(dim=True\)\), Segment\(' +', Style\(dim=True\)\), Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
-                max_row = int(re.findall(r,s)[-1])
-
-                live.update(build_table(resolve=resolve, fpid=fpid, maxrow=max_row))
+                max_row = lastRow(build_table(resolve=resolve, fpid=fpid, startrow=startrow))
+                live.update(build_table(resolve=resolve, fpid=fpid, maxrow=max_row, startrow=startrow))
 
                 time.sleep(1)
 
@@ -306,6 +329,9 @@ def run(fpid: int, resolve: bool = False) -> None:
 
 
 def main() -> None:
+    keyboard.add_hotkey('page up', up)
+    keyboard.add_hotkey('page down', down)
+    threading.Thread(target=keyboard.wait, daemon=True).start()
     pid = None
     if '--process' in sys.argv:
         try:
