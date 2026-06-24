@@ -116,16 +116,24 @@ F = 1
 startrow = 1
 max_row = float('inf')
 
-def down():
-    global startrow
-    startrow = min(max_row+1, 
-                   len(seen_conns))#for footer panel
-def up():
-    global startrow
-    i = 1
-    while lastRow(build_table(False, None, startrow=startrow-i)) >= startrow and startrow-i > 1:
-        i += 1
-    startrow -= i
+def down(page = False):
+    global startrow, F
+    if F == max_row or page:
+        startrow = min(max_row+1, 
+                       len(seen_conns))#for footer panel
+        F = startrow
+    else: F += 1
+def up(page = False):
+    global startrow, F, max_row
+    if F == startrow or page:
+        i = 1
+        max_row = lastRow(build_table(False, None, startrow=startrow-i))
+        while max_row >= startrow and startrow-i > 1:
+            i += 1
+            max_row = lastRow(build_table(False, None, startrow=startrow-i))
+        startrow -= i
+        F = max_row+1
+    else: F -= 1
 
 def build_table(resolve: bool, fpid: int, maxrow=None, startrow=1) -> Table:
     #connections.sort()
@@ -292,7 +300,7 @@ def lastRow(table:Table):
 
 
 def run(fpid: int, resolve: bool = False) -> None:
-    global max_row
+    global max_row, F
     conns, is_root =  get_connections()
 
     console.print(
@@ -320,6 +328,7 @@ def run(fpid: int, resolve: bool = False) -> None:
                 update(conns)
                 
                 max_row = lastRow(build_table(resolve=resolve, fpid=fpid, startrow=startrow))
+                if F > max_row: F = max_row
                 live.update(build_table(resolve=resolve, fpid=fpid, maxrow=max_row, startrow=startrow))
 
                 time.sleep(1)
@@ -329,8 +338,10 @@ def run(fpid: int, resolve: bool = False) -> None:
 
 
 def main() -> None:
-    keyboard.add_hotkey('page up', up)
-    keyboard.add_hotkey('page down', down)
+    keyboard.add_hotkey('page up', up, args=(True,))
+    keyboard.add_hotkey('page down', down, args=(True,))
+    keyboard.add_hotkey('up arrow', up)
+    keyboard.add_hotkey('down arrow', down)
     threading.Thread(target=keyboard.wait, daemon=True).start()
     pid = None
     if '--process' in sys.argv:
