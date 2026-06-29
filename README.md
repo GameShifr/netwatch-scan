@@ -1,8 +1,13 @@
 # NetWatch
 
-![img](img.png)
+███╗   ██╗███████╗████████╗██╗    ██╗ █████╗ ████████╗ ██████╗██╗  ██╗
+ ████╗  ██║██╔════╝╚══██╔══╝██║    ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║
+ ██╔██╗ ██║█████╗     ██║   ██║ █╗ ██║███████║   ██║   ██║     ███████║
+ ██║╚██╗██║██╔══╝     ██║   ██║███╗██║██╔══██║   ██║   ██║     ██╔══██║
+ ██║ ╚████║███████╗   ██║   ╚███╔███╔╝██║  ██║   ██║   ╚██████╗██║  ██║
+ ╚═╝  ╚═══╝╚══════╝   ╚═╝    ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝
 
-**Real-time network security observability for macOS endpoints.**
+**Real-time network security observability.**
 
 NetWatch is a terminal-based security monitoring tool that gives you continuous, live visibility into every active network connection on your machine with automatic risk scoring, GeoIP intelligence, VPN status, process path validation, and new-connection alerting. Built for security-conscious individuals, developers, and teams who need to know exactly what their machine is talking to and why.
 
@@ -25,34 +30,29 @@ Every second, NETWATCH:
 
 ## Installation
 
-**Requirements:** Python 3.10+, macOS (Linux compatible with minor limitations)
+**Requirements:** Python 3.10+
 
-```bash
-pip install netwatch-scan
-```
-
-Or install from source:
+install from source:
 
 ```bash
 git clone https://github.com/kyegomez/netwatch
 cd netwatch
-pip install -e .
+pip install psutil
+pip install rich
 ```
+
+### Python Libs
+- psutil
+- rich
 
 ## Usage
 
-```bash
-# Standard mode
-netwatch
+Flags:
+- `--process <int>` - filter by pid
+- `--name <str>` - filter by exe name
+- `--resolve` - display hostname
+- `--resolve-adv` - display hostname and ip
 
-# Full process visibility (recommended)
-sudo netwatch
-
-# With DNS hostname resolution for remote IPs
-sudo netwatch --resolve
-```
-
-Press `Ctrl+C` to stop.
 
 ---
 
@@ -115,6 +115,9 @@ Each connection is scored across multiple dimensions:
 ### New Connection Detection
 Every connection is tracked by a `(local_addr, remote_addr, pid)` key with a first-seen timestamp. Connections that appeared within the last 6 seconds are flagged with `★` and a highlighted row background. The highlight expires automatically.
 
+### Killed Processes
+processes that have already been killed remain for a few seconds, marked with a flag
+
 ### GeoIP Intelligence
 Remote IP geographic lookups run in background threads via `ip-api.com` and are cached per session. Private/RFC 1918 addresses resolve immediately as `local`. Results appear in the COUNTRY column as they arrive.
 
@@ -141,8 +144,7 @@ A live sidebar showing:
 ## Requirements
 
 - Python 3.10+
-- macOS (Linux compatible with minor limitations — WiFi SSID and gateway detection use macOS-specific tooling)
-- Root access recommended for full process visibility
+- Root access recommended for full process visibility (for MacOS)
 
 **Dependencies:**
 ```
@@ -168,6 +170,7 @@ rich>=13.0
 |--------|---------|
 | `★` | New connection — appeared within the last 6 seconds |
 | `⚠` | Suspicious process — binary executing from a high-risk path |
+| `⏳` | killed process |
 
 ### VPN Border Color
 
@@ -225,15 +228,9 @@ All lookups run in daemon threads and never block the render loop. If either ser
 ---
 
 ## Roadmap
-
-- [ ] IP reputation lookup against AbuseIPDB / threat intel feeds
-- [ ] Per-process bandwidth metering (KB/s per connection)
-- [ ] Anomaly baseline — alert on first-ever outbound connection per process
-- [ ] Port scan / sweep detection (multiple ports from same remote IP)
-- [ ] DNS leak detection (DNS traffic bypassing VPN resolver)
-- [ ] Connection history log (JSONL append with timestamp, risk, process)
-- [ ] `--alert` mode — system notification on HIGH-risk connection
-- [ ] Linux support (SSID via `iwgetid`, gateway via `ip route`)
+- [ ] Difference in stats and detections depends on OS
+- [ ] pyproject.toml
+- [ ] Anyone read it?
 
 ---
 
