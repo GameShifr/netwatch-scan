@@ -299,7 +299,7 @@ def lastRow(table:Table):
     return int(re.findall(r,s)[-1])-1
 
 
-def run(fpid: int, resolve: bool = False) -> None:
+def run(**kwargs) -> None:
     global max_row, F
     conns, is_root =  get_connections()
 
@@ -322,16 +322,16 @@ def run(fpid: int, resolve: bool = False) -> None:
         )
 
     try:
-        with Live(console=console) as live:
+        with Live(console=console, screen=True) as live:
             while True:
                 conns, _ = get_connections()
                 update(conns)
                 
-                max_row = lastRow(build_table(resolve=resolve, fpid=fpid, startrow=startrow))
+                max_row = lastRow(build_table(**kwargs, startrow=startrow))
                 if F > max_row: F = max_row
-                live.update(build_table(resolve=resolve, fpid=fpid, maxrow=max_row, startrow=startrow))
+                live.update(build_table(**kwargs, maxrow=max_row, startrow=startrow))
 
-                time.sleep(1)
+                time.sleep(0.2)
 
     except KeyboardInterrupt:
         console.print("\n[bold bright_cyan]Scan terminated.[/]")
