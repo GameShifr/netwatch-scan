@@ -320,6 +320,7 @@ def run(**kwargs) -> None:
                 padding=(0, 1),
             )
         )
+        time.sleep(1.5)
 
     try:
         with Live(console=console, screen=True) as live:
