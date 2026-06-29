@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
+import re
 import socket
 import sys
 import time
 from datetime import datetime
-
+import keyboard
+import threading
 import psutil
 from psutil._ntuples import sconn
 from rich import box
@@ -14,6 +16,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.layout import Layout
 from connections import seen_conns, update
 from constants import *
 from sysinfo import *
@@ -108,7 +111,31 @@ def build_header() -> Panel:
         title="[bold bright_cyan]SYSTEM[/]",
     )
 
-def build_table(resolve: bool, fpid: int, fname:str) -> Table:
+
+F = 1
+startrow = 1
+max_row = float('inf')
+
+def down(page = False):
+    global startrow, F
+    if F == max_row or page:
+        startrow = min(max_row+1, 
+                       len(seen_conns))#for footer panel
+        F = startrow
+    else: F += 1
+def up(page = False):
+    global startrow, F, max_row
+    if F == startrow or page:
+        i = 1
+        max_row = lastRow(build_table(startrow=startrow-i))
+        while max_row >= startrow and startrow-i > 1:
+            i += 1
+            max_row = lastRow(build_table(startrow=startrow-i))
+        startrow -= i
+        F = max_row+1
+    else: F -= 1
+
+def build_table(resolve: bool = False, fpid: int = None, fname:str = None, maxrow=None, startrow=1) -> Table:
     #connections.sort()
 
     table = Table(
@@ -137,7 +164,8 @@ def build_table(resolve: bool, fpid: int, fname:str) -> Table:
         if ((fpid and conn.pid != fpid) or
             fname and conn.name != fname): continue
         i += 1
-
+        if maxrow and i > maxrow:break
+        if i < startrow: continue
         laddr_str = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "—"
         rip = conn.raddr.ip if conn.raddr else ""
         rport = conn.raddr.port if conn.raddr else None
@@ -183,7 +211,7 @@ def build_table(resolve: bool, fpid: int, fname:str) -> Table:
         if conn.old:
             flags.append("⏳", style="bold red")
 
-        row_style = "on grey7" if conn.new else ""
+        row_style = "on grey7" if i == F else ""
         table.add_row(
             str(i),
             flags,
@@ -257,8 +285,22 @@ def _fmt_bytes(n: int) -> str:
         n //= 1024
     return f"{n:.1f} TB"
 
+def lastRow(table:Table):
+    layout = Layout()
+    layout.update(table)
+    render_map = layout.render(console, console.options)
+    
+    s = str(render_map[layout].render)
+    r = r"\[Segment\('└(?:─+┴)+─+┘?', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
+    if re.findall(r,s):
+        return float('inf')
+
+    r = r"[\s\S]*\[Segment\('├(?:─+┼)+─+┤?', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)(?:, Segment\(' +'\))?\], \[Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\), Segment\(' +', Style\(dim=True\)\), Segment\(' +(\d{1,4})', Style\(dim=True\)\), Segment\(' +', Style\(dim=True\)\), Segment\('\│', Style\(color=Color\('bright_black', ColorType\.STANDARD, number=8\)\)\)"
+    return int(re.findall(r,s)[-1])-1
+
 
 def run(**kwargs) -> None:
+    global max_row, F
     conns, is_root =  get_connections()
 
     console.print(
@@ -280,23 +322,34 @@ def run(**kwargs) -> None:
         )
 
     try:
-        with Live(console=console, refresh_per_second=5, screen=False) as live:
+        with Live(console=console, screen=True) as live:
             while True:
                 conns, _ = get_connections()
                 update(conns)
-                live.update(
-                    Group(
+                
+                max_row = lastRow(Group(
                         build_header(),
-                        build_table(**kwargs),
-                        build_stats(),
-                    )
-                )
-                time.sleep(0.15)
+                        build_table(**kwargs, startrow=startrow)
+                    ))
+                if F > max_row: F = max_row
+                live.update(Group(
+                    build_header(),
+                    build_table(**kwargs, maxrow=max_row, startrow=startrow),
+                    build_stats()
+                ))
+
+                time.sleep(0.2)
+
     except KeyboardInterrupt:
         console.print("\n[bold bright_cyan]Scan terminated.[/]")
 
 
 def main() -> None:
+    keyboard.add_hotkey('page up', up, args=(True,))
+    keyboard.add_hotkey('page down', down, args=(True,))
+    keyboard.add_hotkey('up arrow', up)
+    keyboard.add_hotkey('down arrow', down)
+    threading.Thread(target=keyboard.wait, daemon=True).start()
     pid = None
     name=None
     if '--process' in sys.argv:
